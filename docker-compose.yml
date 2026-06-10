@@ -1,0 +1,14 @@
+services:
+  cloudpilot:
+    build: .
+    container_name: cloudpilot
+    restart: unless-stopped
+    ports:
+      - "8899:8899"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - CLOUDPILOT_DB=/app/data/cloudpilot.db
+      - CLOUDPILOT_SECRET_KEY=change-this-secret-key
+      - CLOUDPILOT_ADMIN_USER=admin
+      - CLOUDPILOT_ADMIN_PASSWORD=admin123
