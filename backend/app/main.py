@@ -1,5 +1,6 @@
 from datetime import datetime
 import json
+import re
 import httpx
 from fastapi import FastAPI, Depends, HTTPException, Form
 from fastapi.responses import FileResponse
@@ -405,6 +406,12 @@ def quota_number(value):
         raw=value.replace(',','').strip()
         if not raw:
             return None
+        unit_match=re.match(r'^(\d+(?:\.\d+)?)\s*(b|kb|mb|gb|tb|pb)?$', raw, re.I)
+        if unit_match:
+            n=float(unit_match.group(1))
+            unit=(unit_match.group(2) or 'b').lower()
+            multipliers={'b':1,'kb':1024,'mb':1024**2,'gb':1024**3,'tb':1024**4,'pb':1024**5}
+            return n*multipliers.get(unit,1)
         try:
             return float(raw)
         except Exception:
@@ -441,6 +448,69 @@ def find_quota_value(data, exact_keys, fuzzy_keys=()):
 
     return walk(data)
 
+def quota_field_summary(data):
+    paths=[]
+
+    def walk(node, prefix=''):
+        if len(paths) >= 24:
+            return
+        if isinstance(node, dict):
+            for key, value in node.items():
+                path=f'{prefix}.{key}' if prefix else str(key)
+                if isinstance(value, (dict, list)):
+                    walk(value, path)
+                else:
+                    paths.append(path)
+                if len(paths) >= 24:
+                    return
+        elif isinstance(node, list):
+            for index, item in enumerate(node[:3]):
+                walk(item, f'{prefix}[{index}]')
+                if len(paths) >= 24:
+                    return
+
+    walk(data)
+    return ', '.join(paths[:24])
+
+def parse_quark_quota_payload(data):
+    d=data.get('data') or data
+    total=find_quota_value(
+        d,
+        exact_keys=(
+            'total_capacity','totalcapacity','total_size','totalsize',
+            'total_space','totalspace','total_byte','total_bytes',
+            'quota_total','quota_size','total','capacity','quota'
+        ),
+        fuzzy_keys=('total_capacity','total_size','total_space','quota_total')
+    )
+    used=find_quota_value(
+        d,
+        exact_keys=(
+            'use_capacity','used_capacity','usecapacity','usedcapacity',
+            'use_size','used_size','usesize','usedsize','use_byte','used_byte',
+            'use_bytes','used_bytes','used','cur_size','current_size','occupied',
+            'used_space','use_space','quota_used'
+        ),
+        fuzzy_keys=('used_capacity','use_capacity','used_size','use_size','used_space','quota_used')
+    )
+
+    if not total:
+        return None
+
+    used=used or 0
+    try:
+        percent=round(float(used)/float(total)*100,1) if float(total)>0 else 0
+    except Exception:
+        percent=0
+
+    return {
+        'ok':True,
+        'message':'ok',
+        'used':fmt_bytes(used),
+        'total':fmt_bytes(total),
+        'percent':percent
+    }
+
 async def quark_quota(cookie: str):
     if not cookie:
         return {'ok':False,'message':'未配置 Cookie','used':'--','total':'--','percent':0}
@@ -452,60 +522,40 @@ async def quark_quota(cookie: str):
         'origin':'https://pan.quark.cn'
     }
 
-    url='https://drive-pc.quark.cn/1/clouddrive/capacity/growth/info'
+    urls=[
+        'https://drive-pc.quark.cn/1/clouddrive/capacity/growth/info',
+        'https://drive-pc.quark.cn/1/clouddrive/capacity/info',
+        'https://drive-pc.quark.cn/1/clouddrive/member/info',
+    ]
     params={'pr':'ucpro','fr':'pc'}
 
     async with httpx.AsyncClient(timeout=15) as client:
-        r=await client.get(url,headers=headers,params=params)
-        if r.status_code != 200:
-            return {'ok':False,'message':f'HTTP {r.status_code}','used':'--','total':'--','percent':0}
+        summaries=[]
+        for url in urls:
+            r=await client.get(url,headers=headers,params=params)
+            if r.status_code != 200:
+                summaries.append(f'{url.rsplit("/",2)[-2:]}: HTTP {r.status_code}')
+                continue
 
-        data=r.json()
-        if data.get('status') not in (0,200,None) and not data.get('data'):
-            return {'ok':False,'message':str(data)[:120],'used':'--','total':'--','percent':0}
+            data=r.json()
+            if data.get('status') not in (0,200,None) and not data.get('data'):
+                summaries.append(str(data)[:120])
+                continue
 
-        d=data.get('data') or data
+            parsed=parse_quark_quota_payload(data)
+            if parsed:
+                return parsed
 
-        total=find_quota_value(
-            d,
-            exact_keys=(
-                'total_capacity','totalcapacity','total_size','totalsize',
-                'total_space','totalspace','total','capacity','quota'
-            ),
-            fuzzy_keys=('total_capacity','total_size','total_space')
-        )
-        used=find_quota_value(
-            d,
-            exact_keys=(
-                'use_capacity','used_capacity','usecapacity','usedcapacity',
-                'use_size','used_size','usesize','usedsize','used','cur_size',
-                'current_size','occupied','used_space','use_space'
-            ),
-            fuzzy_keys=('used_capacity','use_capacity','used_size','use_size','used_space')
-        )
-
-        if not total:
-            return {
-                'ok':False,
-                'message':'容量字段未识别，请更新 Cookie 或稍后重试',
-                'used':'--',
-                'total':'--',
-                'percent':0
-            }
-
-        used=used or 0
-
-        try:
-            percent=round(float(used)/float(total)*100,1) if float(total)>0 else 0
-        except Exception:
-            percent=0
+            summary=quota_field_summary(data.get('data') or data)
+            if summary:
+                summaries.append(summary)
 
         return {
-            'ok':True,
-            'message':'ok',
-            'used':fmt_bytes(used),
-            'total':fmt_bytes(total),
-            'percent':percent
+            'ok':False,
+            'message':'容量字段未识别：' + (' | '.join(summaries[-2:])[:180] or '接口无可读字段'),
+            'used':'--',
+            'total':'--',
+            'percent':0
         }
 
 @app.get('/api/cloud-drives/quota')
