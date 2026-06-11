@@ -38,10 +38,17 @@ CLOUDPILOT_SECRET_KEY
 CLOUDPILOT_ADMIN_PASSWORD
 ```
 
-然后启动：
+如果想在 NAS 上本地构建镜像，然后启动：
 
 ```bash
 docker compose up -d --build
+```
+
+也可以直接使用 GitHub Container Registry 发布的镜像：
+
+```bash
+docker pull ghcr.io/denghuohhh/cloudpilot:latest
+docker compose -f docker-compose.image.yml up -d
 ```
 
 访问：
