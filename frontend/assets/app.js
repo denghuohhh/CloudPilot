@@ -687,7 +687,18 @@ function driveCardHtml(d){
 
 
 function driveUsageMock(d){
-  return driveQuotaCache[d] || {used:'--', total:'--', percent:0};
+  const usage=driveQuotaCache[d] || {};
+  const normalize=value=>{
+    if(value === '0 B' || value === '0B') return '--';
+    return value || '--';
+  };
+  return {
+    ok: !!usage.ok,
+    message: usage.message || '',
+    used: normalize(usage.used),
+    total: normalize(usage.total),
+    percent: Number(usage.percent || 0)
+  };
 }
 
 async function loadDriveQuota(){
@@ -740,8 +751,9 @@ function renderDriveSettings(){
     const usage=driveUsageMock(d);
     const state=driveState(d);
     const logo=driveLogo?.[d] || '';
-    const sub=state.message || (state.can_save ? '可一键转存' : '已配置');
-    const readyClass=state.can_save ? 'ready' : 'pending';
+    const quotaMessage=usage.ok ? '' : usage.message;
+    const sub=quotaMessage || state.message || (state.can_save ? '可一键转存' : '已配置');
+    const readyClass=state.can_save && usage.ok ? 'ready' : 'pending';
 
     return `
       <div class="drive-card-v2">
@@ -849,7 +861,9 @@ window.saveDriveModal=function(){
 window.testDrive=async function(d){
   try{
     const r=await api('/api/cloud-drives/test/'+encodeURIComponent(d),{method:'POST'});
-    alert((driveNames[d]||d)+'：'+(r.message||JSON.stringify(r)));
+    const quota=r.quota || {};
+    const usageText=quota.ok ? `\n已用：${quota.used || '--'}\n总量：${quota.total || '--'}` : '';
+    alert((driveNames[d]||d)+'：'+(r.message||JSON.stringify(r))+usageText);
     await loadDriveStatus();
     await loadDriveQuota();
   }catch(e){

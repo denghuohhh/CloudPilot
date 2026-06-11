@@ -382,6 +382,8 @@ async def tmdb_detail(
 
 def fmt_bytes(n):
     try:
+        if isinstance(n, str):
+            n=n.replace(',','').strip()
         n=float(n or 0)
     except Exception:
         n=0
@@ -393,6 +395,51 @@ def fmt_bytes(n):
     if i==0:
         return f'{int(n)} {units[i]}'
     return f'{n:.2f} {units[i]}'
+
+def quota_number(value):
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        raw=value.replace(',','').strip()
+        if not raw:
+            return None
+        try:
+            return float(raw)
+        except Exception:
+            return None
+    return None
+
+def find_quota_value(data, exact_keys, fuzzy_keys=()):
+    exact={x.lower() for x in exact_keys}
+    fuzzy=tuple(x.lower() for x in fuzzy_keys)
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if str(key).lower() in exact:
+                    n=quota_number(value)
+                    if n is not None:
+                        return n
+            for key, value in node.items():
+                key_text=str(key).lower()
+                if fuzzy and any(name in key_text for name in fuzzy):
+                    n=quota_number(value)
+                    if n is not None:
+                        return n
+            for value in node.values():
+                found=walk(value)
+                if found is not None:
+                    return found
+        elif isinstance(node, list):
+            for item in node:
+                found=walk(item)
+                if found is not None:
+                    return found
+        return None
+
+    return walk(data)
 
 async def quark_quota(cookie: str):
     if not cookie:
@@ -417,10 +464,36 @@ async def quark_quota(cookie: str):
         if data.get('status') not in (0,200,None) and not data.get('data'):
             return {'ok':False,'message':str(data)[:120],'used':'--','total':'--','percent':0}
 
-        d=data.get('data') or {}
+        d=data.get('data') or data
 
-        total=d.get('total_capacity') or d.get('total') or d.get('capacity') or 0
-        used=d.get('use_capacity') or d.get('used_capacity') or d.get('used') or 0
+        total=find_quota_value(
+            d,
+            exact_keys=(
+                'total_capacity','totalcapacity','total_size','totalsize',
+                'total_space','totalspace','total','capacity','quota'
+            ),
+            fuzzy_keys=('total_capacity','total_size','total_space')
+        )
+        used=find_quota_value(
+            d,
+            exact_keys=(
+                'use_capacity','used_capacity','usecapacity','usedcapacity',
+                'use_size','used_size','usesize','usedsize','used','cur_size',
+                'current_size','occupied','used_space','use_space'
+            ),
+            fuzzy_keys=('used_capacity','use_capacity','used_size','use_size','used_space')
+        )
+
+        if not total:
+            return {
+                'ok':False,
+                'message':'容量字段未识别，请更新 Cookie 或稍后重试',
+                'used':'--',
+                'total':'--',
+                'percent':0
+            }
+
+        used=used or 0
 
         try:
             percent=round(float(used)/float(total)*100,1) if float(total)>0 else 0
