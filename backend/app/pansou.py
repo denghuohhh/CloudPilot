@@ -133,21 +133,33 @@ async def search_pansou(base_url: str, keyword: str, timeout: int = 20) -> list[
 
 class PanSouProvider:
     def __init__(self, base_url: str, timeout: int = 20):
-        self.base_url = (base_url or "").rstrip("/")
+        self.base_url = (base_url or "").strip().rstrip("/")
         self.timeout = timeout
 
     async def search(self, keyword: str) -> list[dict]:
+        keyword = (keyword or "").strip()
         if not self.base_url.startswith(("http://", "https://")):
             raise RuntimeError("PanSou API 地址必须以 http:// 或 https:// 开头")
+        if not keyword:
+            return []
 
         candidates = [
             ("GET", "/api/search", {"kw": keyword}),
             ("GET", "/api/search", {"q": keyword}),
+            ("GET", "/api/search", {"keyword": keyword}),
+            ("GET", "/api/search", {"wd": keyword}),
             ("GET", "/search", {"kw": keyword}),
             ("GET", "/search", {"q": keyword}),
+            ("GET", "/search", {"keyword": keyword}),
+            ("GET", "/search", {"wd": keyword}),
             ("POST", "/api/search", {"kw": keyword}),
             ("POST", "/api/search", {"q": keyword}),
             ("POST", "/api/search", {"keyword": keyword}),
+            ("POST", "/api/search", {"wd": keyword}),
+            ("POST", "/search", {"kw": keyword}),
+            ("POST", "/search", {"q": keyword}),
+            ("POST", "/search", {"keyword": keyword}),
+            ("POST", "/search", {"wd": keyword}),
         ]
 
         errors = []

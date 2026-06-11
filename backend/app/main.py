@@ -122,8 +122,14 @@ def cloud_drive_status(user: User=Depends(current_user), session: Session=Depend
     }
 @app.get('/api/search')
 async def search(keyword: str, user: User=Depends(current_user), session: Session=Depends(get_session)):
-    provider=PanSouProvider(get_setting(session,user.id,'pansou_base_url',''))
-    results=await provider.search(keyword)
+    pansou_base_url=get_setting(session,user.id,'pansou_base_url','').strip()
+    if not pansou_base_url:
+        raise HTTPException(status_code=400, detail='请先在接口配置里保存 PanSou 地址')
+    provider=PanSouProvider(pansou_base_url)
+    try:
+        results=await provider.search(keyword)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
     states=all_drive_states(session,user.id)
 
     tmdb_key=get_setting(session,user.id,'tmdb_api_key','')

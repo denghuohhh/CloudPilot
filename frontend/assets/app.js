@@ -130,7 +130,15 @@ async function api(path,opts={}){
     opts.body=JSON.stringify(opts.body);
   }
   const res=await fetch(path,opts);
-  if(!res.ok) throw new Error((await res.text()).slice(0,300));
+  if(!res.ok){
+    const text=(await res.text()).slice(0,500);
+    let message=text;
+    try{
+      const data=JSON.parse(text);
+      message=data.detail || data.message || text;
+    }catch(_){}
+    throw new Error(message);
+  }
   return res.json();
 }
 
@@ -1266,9 +1274,9 @@ function bindSettingsTabs(){
 
 function saveAllSettings(){
   const body={
-    pansou_base_url:$('pansou_base_url')?.value||settingsCache.pansou_base_url||'',
-    notify_webhook:$('notify_webhook')?.value||settingsCache.notify_webhook||'',
-    tmdb_api_key:$('tmdb_api_key')?.value||settingsCache.tmdb_api_key||'',
+    pansou_base_url:($('pansou_base_url')?.value ?? settingsCache.pansou_base_url ?? '').trim(),
+    notify_webhook:($('notify_webhook')?.value ?? settingsCache.notify_webhook ?? '').trim(),
+    tmdb_api_key:($('tmdb_api_key')?.value ?? settingsCache.tmdb_api_key ?? '').trim(),
   };
 
   configDrives.forEach(d=>{
@@ -1299,6 +1307,9 @@ function bindSettingsV2Buttons(){
     btn.dataset.ready='1';
   });
 }
+
+bindSettingsTabs();
+bindSettingsV2Buttons();
 
 document.querySelectorAll('.side-nav button').forEach(btn=>{
   btn.addEventListener('click',()=>{
