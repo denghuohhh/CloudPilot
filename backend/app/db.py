@@ -22,6 +22,14 @@ def init_db():
                 is_admin=True
             ))
             session.commit()
+        else:
+            expected_hash = hash_password(settings.admin_password)
+            if existing.password_hash != expected_hash or not existing.is_admin:
+                existing.password_hash = expected_hash
+                existing.is_admin = True
+                existing.disabled = False
+                session.add(existing)
+                session.commit()
 
 def get_session():
     with Session(engine) as session:
