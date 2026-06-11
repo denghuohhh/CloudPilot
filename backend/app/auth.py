@@ -8,7 +8,7 @@ from .config import settings
 from .db import get_session, verify_password as _verify_password, hash_password as _hash_password
 from .models import User
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 ALGORITHM = "HS256"
 
 def verify_password(raw: str, hashed: str) -> bool:
@@ -21,12 +21,14 @@ def create_token(username: str) -> str:
     expire = datetime.utcnow() + timedelta(days=30)
     return jwt.encode({"sub": username, "exp": expire}, settings.secret_key, algorithm=ALGORITHM)
 
-def current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)) -> User:
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
-        username: Optional[str] = payload.get("sub")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+def current_user(token: Optional[str] = Depends(oauth2_scheme), session: Session = Depends(get_session)) -> User:
+    username: Optional[str] = settings.admin_user
+    if token:
+        try:
+            payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
+            username = payload.get("sub") or settings.admin_user
+        except JWTError:
+            username = settings.admin_user
     user = session.exec(select(User).where(User.username == username)).first()
     if not user or user.disabled:
         raise HTTPException(status_code=401, detail="Invalid user")

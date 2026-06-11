@@ -136,7 +136,7 @@ async function api(path,opts={}){
 
 function setLoggedIn(v){
   if(v){
-    hide('loginPage'); show('mainPage'); show('logout');
+    hide('loginPage'); show('mainPage'); hide('logout');
     initFilters();
     loadSettings(); loadTasks(); loadSubs(); loadWorkflowOverview(); setTimeout(()=>{ if(typeof loadDriveQuota==='function') loadDriveQuota(); },1000);
   }else{
@@ -159,7 +159,7 @@ $('loginBtn').onclick=async()=>{
 $('logout').onclick=()=>{
   token='';
   localStorage.removeItem('cloudpilot_token');
-  setLoggedIn(false);
+  setLoggedIn(true);
 };
 
 document.querySelectorAll('.side-nav button').forEach(btn=>{
@@ -976,7 +976,7 @@ async function loadSubs(){
   }catch(e){}
 }
 
-if(token)setLoggedIn(true);else setLoggedIn(false);
+setLoggedIn(true);
 
 
 /* Recommend / Explore */
