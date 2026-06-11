@@ -863,7 +863,8 @@ window.testDrive=async function(d){
     const r=await api('/api/cloud-drives/test/'+encodeURIComponent(d),{method:'POST'});
     const quota=r.quota || {};
     const usageText=quota.ok ? `\n已用：${quota.used || '--'}\n总量：${quota.total || '--'}` : '';
-    alert((driveNames[d]||d)+'：'+(r.message||JSON.stringify(r))+usageText);
+    const warningText=r.warning ? `\n提示：${r.warning}` : '';
+    alert((driveNames[d]||d)+'：'+(r.message||JSON.stringify(r))+usageText+warningText);
     await loadDriveStatus();
     await loadDriveQuota();
   }catch(e){

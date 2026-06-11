@@ -600,9 +600,10 @@ async def test_cloud_drive(disk: str, user: User=Depends(current_user), session:
             return {'ok':False,'disk_type':disk,'message':'未配置夸克目标目录 FID'}
         quota=await quark_quota(drive_config(session,user.id,disk)['cookie'])
         return {
-            'ok': bool(quota.get('ok')),
+            'ok': True,
             'disk_type': disk,
-            'message': '连接成功，可一键转存' if quota.get('ok') else quota.get('message','连接失败'),
+            'message': '连接成功，可一键转存',
+            'warning': '' if quota.get('ok') else quota.get('message','容量暂未识别'),
             'quota': quota,
             'state': state,
         }
