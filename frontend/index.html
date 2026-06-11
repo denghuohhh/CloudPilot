@@ -1,1 +1,385 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>CloudPilot</title><link rel="stylesheet" href="/assets/style.css"/></head><body><div id="app"><header><div><h1>CloudPilot</h1><p>搜索 → 网盘 → 转存</p></div><button id="logout" class="ghost hidden">退出</button></header><main id="loginPage" class="card"><h2>登录</h2><input id="username" placeholder="用户名" value="admin"/><input id="password" placeholder="密码" type="password" value="admin123"/><button id="loginBtn">登录</button><p id="loginMsg" class="msg"></p></main><main id="mainPage" class="hidden"><nav><button data-tab="search" class="active">搜索</button><button data-tab="subs">订阅</button><button data-tab="tasks">转存</button><button data-tab="settings">配置</button></nav><section id="tab-search" class="tab"><div class="card"><h2>搜索网盘资源</h2><div class="flow">搜索 → PanSou → 网盘结果 → 一键转存</div><div class="row"><input id="keyword" placeholder="例如：流浪地球 4K"/><button id="searchBtn">搜索</button></div><p id="searchMsg" class="msg"></p></div><div id="results"></div></section><section id="tab-subs" class="tab hidden"><div class="card"><h2>订阅</h2><input id="subKeyword" placeholder="订阅关键词"/><select id="subDisk"><option value="all">全部网盘</option><option value="quark">夸克</option><option value="115">115</option><option value="aliyun">阿里</option><option value="uc">UC</option></select><input id="subInclude" placeholder="包含关键词，可空"/><input id="subExclude" placeholder="排除关键词，可空"/><input id="subTarget" placeholder="目标目录ID/FID，可空"/><button id="addSubBtn">保存订阅</button></div><div id="subs"></div></section><section id="tab-tasks" class="tab hidden"><div class="card"><h2>转存任务</h2><button id="reloadTasks">刷新</button></div><div id="tasks"></div></section><section id="tab-settings" class="tab hidden"><div class="card"><h2>配置</h2><input id="pansou_base_url" placeholder="PanSou API 地址，例如 http://192.168.10.15:8888"/><input id="notify_webhook" placeholder="通知 Webhook：企业微信 / 飞书 / Telegram网关"/><h3>网盘配置</h3><div id="driveSettings"></div><button id="saveSettings">保存</button><button id="testNotify" class="ghost">测试通知</button><p id="settingsMsg" class="msg"></p></div></section></main></div><script src="/assets/app.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+  <title>CloudPilot</title>
+  <link rel="stylesheet" href="/assets/style.css?v=apple1"/>
+</head>
+<body>
+<div class="app-shell">
+  
+  <aside class="sidebar mp-sidebar">
+    <div class="mp-logo">
+      <div class="mp-logo-icon">C</div>
+      <div>
+        <div class="mp-logo-title">CloudPilot</div>
+        <div class="mp-logo-sub">v0.9</div>
+      </div>
+    </div>
+
+    <nav class="side-nav mp-nav">
+      <button data-tab="dashboard">⌂ 仪表盘</button>
+      <button data-tab="search" class="active">⌕ 搜索结果</button>
+
+      <div class="nav-group"><span>发现</span></div>
+      <button data-tab="recommend">☆ 推荐</button>
+      <button data-tab="explore">◉ 探索</button>
+
+      <div class="nav-group"><span>订阅</span></div>
+      <button data-tab="movies">▣ 电影</button>
+      <button data-tab="tv">▭ 电视剧</button>
+      <button data-tab="workflow">⌘ 工作流</button>
+      <button data-tab="calendar">▣ 日历</button>
+
+      <div class="nav-group"><span>整理</span></div>
+      <button data-tab="tasks">⇩ 下载管理</button>
+      <button data-tab="organize">▱ 媒体整理</button>
+      <button data-tab="files">▰ 文件管理</button>
+
+      <div class="nav-group"><span>系统</span></div>
+      <button data-tab="plugins">▦ 插件</button>
+      <button data-tab="users">♚ 用户管理</button>
+      <button data-tab="settings">⚙ 设置</button>
+    </nav>
+
+    <button id="logout" class="plain hidden">退出登录</button>
+  </aside>
+
+
+  <main class="content">
+    <section id="loginPage" class="login-card">
+      <div class="login-logo">CloudPilot</div>
+      <p>登录后开始搜索和转存网盘资源</p>
+      <input id="username" placeholder="用户名"/>
+      <input id="password" placeholder="密码" type="password"/>
+      <button id="loginBtn" class="primary">登录</button>
+      <p id="loginMsg" class="msg"></p>
+    </section>
+
+    <div id="mainPage" class="hidden">
+      
+      
+      <section id="tab-media" class="tab hidden">
+        <div id="mediaDetail" class="media-detail-page">
+          <div class="list-card">请选择一个媒体</div>
+        </div>
+      </section>
+
+<section id="tab-dashboard" class="tab hidden">
+        <div class="page-head"><h2>仪表盘</h2></div>
+        <div class="placeholder-grid">
+          <div class="placeholder-card"><strong>今日搜索</strong><span>等待接入</span></div>
+          <div class="placeholder-card"><strong>成功转存</strong><span>等待接入</span></div>
+          <div class="placeholder-card"><strong>订阅任务</strong><span>等待接入</span></div>
+          <div class="placeholder-card"><strong>资源统计</strong><span>等待接入</span></div>
+        </div>
+      </section>
+
+      
+      <section id="tab-recommend" class="tab hidden">
+        <div class="top-search">
+          <input id="globalSearchKeyword" placeholder="搜索影视资源"/>
+          <button id="globalSearchBtn" class="secondary">搜索</button>
+        </div>
+
+        <div id="recommendSections" class="recommend-page">
+          <div class="list-card">正在加载推荐内容...</div>
+        </div>
+      </section>
+
+      
+      <section id="tab-explore" class="tab hidden">
+        <div class="top-search">
+          <input id="exploreSearchKeyword" placeholder="搜索影视资源"/>
+          <button id="exploreSearchBtn" class="secondary">搜索</button>
+        </div>
+
+        <div class="explore-filters">
+          <div class="filter-tabs" id="discoverSourceTabs">
+            <button class="active" data-source="tmdb">TheMovieDb</button>
+            <button data-source="douban">豆瓣</button>
+            <button data-source="bangumi">Bangumi</button>
+            <button data-source="cctv">CCTV</button>
+          </div>
+
+          <div class="filter-line">
+            <span>类型</span>
+            <button class="filter-chip active" data-media="movie">电影</button>
+            <button class="filter-chip" data-media="tv">电视剧</button>
+          </div>
+
+          <div class="filter-line">
+            <span>排序</span>
+            <button class="filter-chip active" data-sort="popularity.desc">热度降序</button>
+            <button class="filter-chip" data-sort="popularity.asc">热度升序</button>
+            <button class="filter-chip" data-sort="primary_release_date.desc">上映日期降序</button>
+            <button class="filter-chip" data-sort="primary_release_date.asc">上映日期升序</button>
+            <button class="filter-chip" data-sort="vote_average.desc">评分降序</button>
+          </div>
+
+          <div class="filter-line" id="genreLine">
+            <span>风格</span>
+            <div id="genreChips" class="chip-wrap"></div>
+          </div>
+
+          <div class="filter-line">
+            <span>语言</span>
+            <button class="filter-chip active" data-lang="">全部</button>
+            <button class="filter-chip" data-lang="zh">中文</button>
+            <button class="filter-chip" data-lang="en">英语</button>
+            <button class="filter-chip" data-lang="ja">日语</button>
+            <button class="filter-chip" data-lang="ko">韩语</button>
+            <button class="filter-chip" data-lang="fr">法语</button>
+            <button class="filter-chip" data-lang="de">德语</button>
+          </div>
+        </div>
+
+        <div id="discoverGrid" class="poster-grid"></div>
+      </section>
+
+      <section id="tab-movies" class="tab hidden"><div class="empty-page"><h2>电影订阅</h2><p>后续接入电影订阅规则。</p></div></section>
+      <section id="tab-tv" class="tab hidden"><div class="empty-page"><h2>电视剧订阅</h2><p>后续接入电视剧订阅规则。</p></div></section>
+      <section id="tab-workflow" class="tab hidden"><div class="empty-page"><h2>工作流</h2><p>后续接入自动搜索、转存、整理、通知流程。</p></div></section>
+      <section id="tab-calendar" class="tab hidden"><div class="empty-page"><h2>日历</h2><p>后续接入剧集更新日历。</p></div></section>
+      <section id="tab-organize" class="tab hidden"><div class="empty-page"><h2>媒体整理</h2><p>后续接入转存后整理、命名、归类。</p></div></section>
+      <section id="tab-files" class="tab hidden"><div class="empty-page"><h2>文件管理</h2><p>后续接入网盘文件浏览。</p></div></section>
+      <section id="tab-plugins" class="tab hidden"><div class="empty-page"><h2>插件</h2><p>后续接入插件市场和插件配置。</p></div></section>
+      <section id="tab-users" class="tab hidden"><div class="empty-page"><h2>用户管理</h2><p>后续接入用户、权限、Token。</p></div></section>
+
+<section id="tab-search" class="tab">
+        <div class="hero">
+          <p class="eyebrow">CloudPilot</p>
+          <h2>发现资源，自动识别，归类转存。</h2>
+          <div class="search-bar">
+            <input id="keyword" placeholder="搜索电影、电视剧、动漫、综艺"/>
+            <button id="searchBtn">搜索</button>
+          </div>
+          <p id="searchMsg" class="msg"></p>
+        </div>
+
+        <div id="filterCard" class="filter-panel hidden">
+          <details>
+            <summary>筛选条件</summary>
+            <div class="filter-grid">
+              <label>网盘<select id="filterDisk"></select></label>
+              <label>质量<select id="filterQuality"></select></label>
+              <label>排序<select id="filterSort"></select></label>
+              <label>包含<input id="filterInclude" placeholder="例如 4K REMUX"/></label>
+              <label>排除<input id="filterExclude" placeholder="例如 TS CAM 枪版"/></label>
+            </div>
+          </details>
+
+          <div class="segment">
+            <button id="configuredTabBtn" class="active">可转存 <span id="configuredCount">0</span></button>
+            <button id="unconfiguredTabBtn">其它资源 <span id="unconfiguredCount">0</span></button>
+          </div>
+        </div>
+
+        <section id="resultsConfiguredWrap" class="result-list hidden">
+          <div id="resultsConfigured"></div>
+        </section>
+
+        <section id="resultsUnconfiguredWrap" class="result-list hidden">
+          <div id="resultsUnconfigured"></div>
+        </section>
+      </section>
+
+      <section id="tab-tasks" class="tab hidden">
+        <div class="page-head">
+          <h2>转存记录</h2>
+          <button id="reloadTasks" class="secondary">刷新</button>
+        </div>
+        <div id="tasks" class="list-card"></div>
+      </section>
+
+      <section id="tab-subs" class="tab hidden">
+        <div class="page-head">
+          <h2>订阅</h2>
+        </div>
+        <div class="settings-card">
+          <input id="subKeyword" placeholder="订阅关键词"/>
+          <select id="subDisk">
+            <option value="all">全部网盘</option>
+            <option value="quark">夸克</option>
+            <option value="115">115</option>
+            <option value="aliyun">阿里</option>
+            <option value="uc">UC</option>
+            <option value="baidu">百度</option>
+            <option value="tianyi">天翼</option>
+            <option value="xunlei">迅雷</option>
+            <option value="mobile">移动云盘</option>
+            <option value="123">123云盘</option>
+          </select>
+          <input id="subTarget" placeholder="目标目录ID/FID，可留空"/>
+          <button id="addSubBtn" class="primary">添加订阅</button>
+        </div>
+        <div id="subs" class="list-card"></div>
+      </section>
+
+      
+      
+      <section id="tab-settings" class="tab hidden">
+        <div class="settings-tabs">
+          <button class="settings-tab active" data-setting-tab="system" onclick="switchSettingsTab('system')">☰ 系统</button>
+          <button class="settings-tab" data-setting-tab="interface" onclick="switchSettingsTab('interface')">⌘ 接口</button>
+          <button class="settings-tab" data-setting-tab="drives" onclick="switchSettingsTab('drives')">▣ 网盘</button>
+          <button class="settings-tab" data-setting-tab="notify" onclick="switchSettingsTab('notify')">♟ 通知</button>
+        </div>
+
+        <div id="settings-system" class="settings-panel">
+          <div class="settings-block">
+            <h3>识别策略</h3>
+            <p class="setting-desc">后续接入标题清洗、语言、地区、媒体类型优先级。</p>
+
+            <div class="setting-row muted-row">
+              <div>
+                <strong>标题清洗</strong>
+                <span>自动移除 4K、HDR、REMUX、字幕、大小等干扰词</span>
+              </div>
+              <span class="status-pill">已启用</span>
+            </div>
+
+            <div class="setting-row muted-row">
+              <div>
+                <strong>媒体识别</strong>
+                <span>优先 TMDB，未命中时使用标题聚合</span>
+              </div>
+              <span class="status-pill">已启用</span>
+            </div>
+          </div>
+        </div>
+
+        <div id="settings-interface" class="settings-panel hidden">
+          <div class="settings-block">
+            <h3>接口配置</h3>
+            <p class="setting-desc">配置搜索、识别、媒体信息等外部接口。</p>
+
+            <div class="setting-row">
+              <div>
+                <strong>PanSou 地址</strong>
+                <span>网盘搜索服务地址</span>
+              </div>
+              <input id="pansou_base_url" placeholder="http://192.168.10.11:8100"/>
+            </div>
+
+            <div class="setting-row">
+              <div>
+                <strong>TMDB API Key</strong>
+                <span>用于识别媒体、海报、简介、评分</span>
+              </div>
+              <input id="tmdb_api_key" placeholder="TMDB API Key"/>
+            </div>
+
+            <div class="setting-row muted-row">
+              <div>
+                <strong>更多接口</strong>
+                <span>后续可放豆瓣、Bangumi、字幕、AI识别等接口</span>
+              </div>
+              <span class="status-pill">规划中</span>
+            </div>
+
+            <div class="setting-actions">
+              <button id="saveInterfaceSettings" class="primary">保存</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="settings-drives" class="settings-panel hidden">
+          <div class="settings-block">
+            <div class="group-title">
+              <div>
+                <h3>网盘管理</h3>
+                <p>只添加你需要转存的网盘。未配置网盘仍可打开链接。</p>
+              </div>
+              <div class="add-drive">
+                <select id="addDriveType">
+                  <option value="quark">夸克</option>
+                  <option value="115">115</option>
+                  <option value="aliyun">阿里</option>
+                  <option value="uc">UC</option>
+                  <option value="baidu">百度</option>
+                  <option value="tianyi">天翼</option>
+                  <option value="xunlei">迅雷</option>
+                  <option value="mobile">移动云盘</option>
+                  <option value="123">123云盘</option>
+                </select>
+                <button id="addDriveBtn" class="secondary">添加</button>
+              </div>
+            </div>
+
+            <div id="driveCards" class="drive-cards"></div>
+
+            <div class="setting-actions">
+              <button id="saveDriveSettings" class="primary">保存</button>
+            </div>
+          </div>
+
+          <div class="settings-block">
+            <h3>分类目录</h3>
+            <p class="setting-desc">这里后续放电影 3 类、电视剧 9 类的目录映射。</p>
+            <div class="placeholder-line">待接入：华语电影 / 外语电影 / 动画电影 / 国产剧 / 欧美剧 / 日韩剧等目录 ID</div>
+          </div>
+        </div>
+
+        <div id="settings-notify" class="settings-panel hidden">
+          <div class="settings-block">
+            <h3>通知渠道</h3>
+            <p class="setting-desc">先保留 Webhook，后续可扩展企业微信、飞书、Telegram、通知模板、通知范围。</p>
+
+            <div class="setting-row">
+              <div>
+                <strong>通知 Webhook</strong>
+                <span>企业微信 / 飞书 / Telegram 网关</span>
+              </div>
+              <input id="notify_webhook" placeholder="Webhook URL"/>
+            </div>
+
+            <div class="setting-actions">
+              <button id="saveNotifySettings" class="primary">保存</button>
+              <button id="testNotify" class="secondary">测试通知</button>
+            </div>
+            <p id="settingsMsg" class="msg"></p>
+          </div>
+
+          <div class="settings-block">
+            <h3>通知模板</h3>
+            <p class="setting-desc">后续接入资源入库、转存成功、订阅命中、失败告警等模板。</p>
+
+            <div class="notify-template-row">
+              <div class="notify-template-card">资源入库 <span>待接入</span></div>
+              <div class="notify-template-card">资源下载 <span>待接入</span></div>
+              <div class="notify-template-card">订阅命中 <span>待接入</span></div>
+              <div class="notify-template-card">失败告警 <span>待接入</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+
+    </div>
+  </main>
+</div>
+
+<script src="/assets/app.js?v=settings-final"></script>
+
+<script>
+window.switchSettingsTab=function(tab){
+  document.querySelectorAll('.settings-tab').forEach(function(b){
+    b.classList.remove('active');
+  });
+
+  var btn=document.querySelector('.settings-tab[data-setting-tab="'+tab+'"]');
+  if(btn) btn.classList.add('active');
+
+  document.querySelectorAll('.settings-panel').forEach(function(p){
+    p.classList.add('hidden');
+  });
+
+  var panel=document.getElementById('settings-'+tab);
+  if(panel) panel.classList.remove('hidden');
+};
+</script>
+
+</body>
+</html>

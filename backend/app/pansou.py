@@ -1,5 +1,6 @@
 from typing import Any
 import httpx
+from .classify import classify_resource
 
 
 def _normalize_items(data: Any) -> list[dict]:
@@ -48,11 +49,19 @@ def _normalize_items(data: Any) -> list[dict]:
         password = item.get("password") or item.get("pwd") or item.get("code") or ""
         if not url:
             continue
+        cls = classify_resource(
+            title=title,
+            note=item.get("note") or "",
+            source=item.get("source") or "",
+        )
         items.append({
             "title": title,
             "url": url,
             "disk_type": str(disk).lower(),
             "password": password,
+            "media_type": cls["media_type"],
+            "category": cls["category"],
+            "confidence": cls["confidence"],
             "raw": item,
         })
     return items

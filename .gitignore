@@ -1,0 +1,31 @@
+.DS_Store
+
+# Runtime data
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local backups
+*.bak
+*.bak*
+*.log
+
+# Frontend dependencies/build output, if added later
+node_modules/
+dist/
+build/

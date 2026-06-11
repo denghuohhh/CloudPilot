@@ -7,8 +7,10 @@ services:
       - "8899:8899"
     volumes:
       - ./data:/app/data
+    env_file:
+      - .env
     environment:
-      - CLOUDPILOT_DB=/app/data/cloudpilot.db
-      - CLOUDPILOT_SECRET_KEY=change-this-secret-key
-      - CLOUDPILOT_ADMIN_USER=admin
-      - CLOUDPILOT_ADMIN_PASSWORD=admin123
+      - CLOUDPILOT_DB=${CLOUDPILOT_DB:-/app/data/cloudpilot.db}
+      - CLOUDPILOT_SECRET_KEY=${CLOUDPILOT_SECRET_KEY:?Set CLOUDPILOT_SECRET_KEY in .env}
+      - CLOUDPILOT_ADMIN_USER=${CLOUDPILOT_ADMIN_USER:-admin}
+      - CLOUDPILOT_ADMIN_PASSWORD=${CLOUDPILOT_ADMIN_PASSWORD:?Set CLOUDPILOT_ADMIN_PASSWORD in .env}
