@@ -10,6 +10,9 @@ class CloudSaveResult:
 
 class CloudDriveAdapter:
     disk_type = 'unknown'
+    supports_save = False
+    required_fields = ('credential',)
+
     def __init__(self, cookie='', token='', target_dir=''):
         self.cookie = cookie
         self.token = token
@@ -25,6 +28,8 @@ class CloudDriveAdapter:
 
 class QuarkAdapter(CloudDriveAdapter):
     disk_type='quark'
+    supports_save = True
+    required_fields = ('cookie', 'target_dir')
     api_base='https://drive-pc.quark.cn/1/clouddrive'
 
     def headers(self):

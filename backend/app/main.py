@@ -16,10 +16,78 @@ from .pansou import PanSouProvider
 from .tmdb import TMDBClient
 from .settings import get_setting, set_setting
 app = FastAPI(title='CloudPilot', version='0.1.0')
+DRIVE_ORDER = ['quark','115','aliyun','uc','baidu','tianyi','xunlei','mobile','123']
+
 class SaveRequest(BaseModel):
     title: str; disk_type: str; share_url: str; share_code: str = ''; target_dir: str = ''; media_type: str = ''; category: str = ''; raw: dict = {}
 class SubscriptionCreate(BaseModel):
     keyword: str; disk_type: str = 'all'; include_words: str = ''; exclude_words: str = ''; target_dir: str = ''; interval_minutes: int = 360; enabled: bool = True
+
+def drive_config(session: Session, owner_id: int, disk: str) -> dict:
+    disk = (disk or '').lower()
+    return {
+        'disk_type': disk,
+        'cookie': get_setting(session, owner_id, f'{disk}_cookie', ''),
+        'token': get_setting(session, owner_id, f'{disk}_token', ''),
+        'target_dir': get_setting(session, owner_id, f'{disk}_target_dir', '').strip(),
+    }
+
+def drive_state(session: Session, owner_id: int, disk: str) -> dict:
+    cfg = drive_config(session, owner_id, disk)
+    adapter = create_adapter(disk, cookie=cfg['cookie'], token=cfg['token'], target_dir=cfg['target_dir'])
+    has_credential = bool(cfg['cookie'] or cfg['token'])
+    configured = bool(has_credential or cfg['target_dir'])
+    supports_save = bool(getattr(adapter, 'supports_save', False))
+    missing = []
+
+    if supports_save:
+        if 'cookie' in getattr(adapter, 'required_fields', ()) and not cfg['cookie']:
+            missing.append('Cookie')
+        if 'target_dir' in getattr(adapter, 'required_fields', ()) and not cfg['target_dir']:
+            missing.append('目标目录 FID')
+        if 'credential' in getattr(adapter, 'required_fields', ()) and not has_credential:
+            missing.append('Cookie/Token')
+    else:
+        if configured:
+            missing.append('转存接口待接入')
+
+    return {
+        'disk_type': cfg['disk_type'],
+        'configured': configured,
+        'supports_save': supports_save,
+        'can_save': configured and supports_save and not missing,
+        'has_cookie': bool(cfg['cookie']),
+        'has_token': bool(cfg['token']),
+        'has_target_dir': bool(cfg['target_dir']),
+        'target_dir': cfg['target_dir'],
+        'missing': missing,
+        'message': '可一键转存' if configured and supports_save and not missing else ('、'.join(missing) if missing else '未配置'),
+    }
+
+def all_drive_states(session: Session, owner_id: int) -> dict:
+    return {disk: drive_state(session, owner_id, disk) for disk in DRIVE_ORDER}
+
+def annotate_search_item(item: dict, states: dict) -> dict:
+    disk = (item.get('disk_type') or 'unknown').lower()
+    state = states.get(disk) or {}
+    raw = item.get('raw') or {}
+    cls = classify_resource(
+        title=item.get('title') or raw.get('title') or raw.get('note') or '',
+        note=raw.get('note') or '',
+        source=raw.get('source') or '',
+    )
+    item['disk_type'] = disk
+    item['configured'] = bool(state.get('configured'))
+    item['supports_save'] = bool(state.get('supports_save'))
+    item['can_save'] = bool(state.get('can_save'))
+    item['save_message'] = state.get('message') or '未配置'
+    item['save_missing'] = state.get('missing') or []
+    item.setdefault('media_type', cls.get('media_type'))
+    item.setdefault('category', cls.get('category'))
+    item.setdefault('confidence', cls.get('confidence'))
+    item['workflow_status'] = 'ready' if item['can_save'] else ('configured_pending' if item['configured'] else 'needs_drive')
+    return item
+
 @app.on_event('startup')
 def startup(): init_db()
 @app.post('/api/auth/login')
@@ -43,10 +111,19 @@ def write_settings(data: dict, user: User=Depends(current_user), session: Sessio
     return {'ok':True}
 @app.get('/api/cloud-drives')
 def cloud_drives(): return {'supported': sorted(set(ADAPTERS.keys()))}
+@app.get('/api/cloud-drives/status')
+def cloud_drive_status(user: User=Depends(current_user), session: Session=Depends(get_session)):
+    states = all_drive_states(session, user.id)
+    return {
+        'items': list(states.values()),
+        'configured': [k for k, v in states.items() if v['configured']],
+        'savable': [k for k, v in states.items() if v['can_save']],
+    }
 @app.get('/api/search')
 async def search(keyword: str, user: User=Depends(current_user), session: Session=Depends(get_session)):
     provider=PanSouProvider(get_setting(session,user.id,'pansou_base_url',''))
     results=await provider.search(keyword)
+    states=all_drive_states(session,user.id)
 
     tmdb_key=get_setting(session,user.id,'tmdb_api_key','')
     if tmdb_key and results:
@@ -68,11 +145,22 @@ async def search(keyword: str, user: User=Depends(current_user), session: Sessio
                 item['overview']=cache[key].get('tmdb_overview','')
                 item['tmdb_title']=cache[key].get('tmdb_title','')
 
+    results=[annotate_search_item(item, states) for item in results]
     session.add(CloudSearchHistory(owner_id=user.id,keyword=keyword,result_count=len(results))); session.commit()
-    return {'keyword':keyword,'count':len(results),'items':results}
+    return {
+        'keyword':keyword,
+        'count':len(results),
+        'savable_count':len([x for x in results if x.get('can_save')]),
+        'configured_count':len([x for x in results if x.get('configured')]),
+        'drive_status':states,
+        'items':results
+    }
 @app.post('/api/save')
 async def save_to_cloud(payload: SaveRequest, user: User=Depends(current_user), session: Session=Depends(get_session)):
     disk=(payload.disk_type or 'unknown').lower(); target=payload.target_dir or get_setting(session,user.id,f'{disk}_target_dir','')
+    state=drive_state(session,user.id,disk)
+    if not state.get('can_save'):
+        raise HTTPException(status_code=400, detail=f"{disk} 暂不可转存：{state.get('message') or '未配置'}")
     task=CloudSaveTask(owner_id=user.id,title=payload.title,disk_type=disk,share_url=payload.share_url,share_code=payload.share_code,target_dir=target,status='saving',raw_json=json.dumps(payload.raw or {},ensure_ascii=False))
     session.add(task); session.commit(); session.refresh(task)
     adapter=create_adapter(disk, cookie=get_setting(session,user.id,f'{disk}_cookie',''), token=get_setting(session,user.id,f'{disk}_token',''), target_dir=target)
@@ -90,6 +178,22 @@ async def save_to_cloud(payload: SaveRequest, user: User=Depends(current_user), 
     return task
 @app.get('/api/save-tasks')
 def save_tasks(user: User=Depends(current_user), session: Session=Depends(get_session)): return session.exec(select(CloudSaveTask).where(CloudSaveTask.owner_id==user.id).order_by(CloudSaveTask.id.desc())).all()
+@app.get('/api/workflow/overview')
+def workflow_overview(user: User=Depends(current_user), session: Session=Depends(get_session)):
+    states=all_drive_states(session,user.id)
+    saves=session.exec(select(CloudSaveTask).where(CloudSaveTask.owner_id==user.id)).all()
+    searches=session.exec(select(CloudSearchHistory).where(CloudSearchHistory.owner_id==user.id)).all()
+    subs=session.exec(select(CloudSubscription).where(CloudSubscription.owner_id==user.id)).all()
+    return {
+        'search_count': len(searches),
+        'save_count': len(saves),
+        'save_success_count': len([x for x in saves if x.status == 'success']),
+        'save_failed_count': len([x for x in saves if x.status == 'failed']),
+        'subscription_count': len(subs),
+        'configured_drive_count': len([x for x in states.values() if x['configured']]),
+        'savable_drive_count': len([x for x in states.values() if x['can_save']]),
+        'drives': list(states.values()),
+    }
 @app.get('/api/subscriptions')
 def subscriptions(user: User=Depends(current_user), session: Session=Depends(get_session)): return session.exec(select(CloudSubscription).where(CloudSubscription.owner_id==user.id).order_by(CloudSubscription.id.desc())).all()
 @app.post('/api/subscriptions')
@@ -355,6 +459,37 @@ async def cloud_drive_quota(user: User=Depends(current_user), session: Session=D
             }
 
     return result
+
+@app.post('/api/cloud-drives/test/{disk}')
+async def test_cloud_drive(disk: str, user: User=Depends(current_user), session: Session=Depends(get_session)):
+    disk=(disk or '').lower()
+    if disk not in ADAPTERS:
+        raise HTTPException(status_code=404, detail='不支持的网盘类型')
+
+    state=drive_state(session,user.id,disk)
+    if not state.get('configured'):
+        return {'ok':False,'disk_type':disk,'message':'未配置 Cookie/Token/目标目录'}
+
+    if disk == 'quark':
+        if not state.get('has_cookie'):
+            return {'ok':False,'disk_type':disk,'message':'未配置夸克 Cookie'}
+        if not state.get('has_target_dir'):
+            return {'ok':False,'disk_type':disk,'message':'未配置夸克目标目录 FID'}
+        quota=await quark_quota(drive_config(session,user.id,disk)['cookie'])
+        return {
+            'ok': bool(quota.get('ok')),
+            'disk_type': disk,
+            'message': '连接成功，可一键转存' if quota.get('ok') else quota.get('message','连接失败'),
+            'quota': quota,
+            'state': state,
+        }
+
+    return {
+        'ok': False,
+        'disk_type': disk,
+        'message': '已保存配置，但该网盘真实转存接口待接入',
+        'state': state,
+    }
 
 
 app.mount('/assets', StaticFiles(directory='/app/frontend/assets'), name='assets')

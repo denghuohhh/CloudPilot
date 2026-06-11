@@ -838,6 +838,16 @@ button{
   font-weight:700;
 }
 
+.save-status{
+  background:#fff7ed;
+  color:#c2410c;
+  border:1px solid #fed7aa;
+  border-radius:999px;
+  padding:5px 9px;
+  font-size:12px;
+  font-weight:800;
+}
+
 .size-badge{
   font-size:12px;
   font-weight:850;
@@ -2013,6 +2023,15 @@ button{
 .drive-card-sub{
   color:#6b7280;
   margin-top:4px;
+}
+
+.drive-card-sub.ready{
+  color:#15803d;
+  font-weight:800;
+}
+
+.drive-card-sub.pending{
+  color:#b45309;
 }
 
 .drive-more{

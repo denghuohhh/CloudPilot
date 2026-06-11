@@ -1,7 +1,65 @@
 from typing import Any
 import httpx
+import re
 from .classify import classify_resource
 
+DISK_ALIASES = {
+    "夸克": "quark",
+    "夸克网盘": "quark",
+    "quark": "quark",
+    "uc": "uc",
+    "uc网盘": "uc",
+    "115": "115",
+    "115网盘": "115",
+    "阿里": "aliyun",
+    "阿里云盘": "aliyun",
+    "alipan": "aliyun",
+    "aliyun": "aliyun",
+    "百度": "baidu",
+    "百度网盘": "baidu",
+    "baidupan": "baidu",
+    "天翼": "tianyi",
+    "天翼云盘": "tianyi",
+    "迅雷": "xunlei",
+    "迅雷云盘": "xunlei",
+    "移动": "mobile",
+    "移动云盘": "mobile",
+    "123": "123",
+    "123云盘": "123",
+}
+
+URL_RE = re.compile(r"https?://[^\s，,。)）\]}】>]+", re.I)
+CODE_RE = re.compile(r"(?:提取码|访问码|密码|code|pwd)[:：\s]*([A-Za-z0-9]{4,8})", re.I)
+
+def _normalize_disk(value: Any, text: str = "") -> str:
+    raw = str(value or "").strip().lower()
+    if raw in DISK_ALIASES:
+        return DISK_ALIASES[raw]
+    probe = f"{raw} {text}".lower()
+    for key, disk in DISK_ALIASES.items():
+        if key.lower() in probe:
+            return disk
+    return raw or "unknown"
+
+def _first_url(*values: Any) -> str:
+    for value in values:
+        text = str(value or "")
+        if text.startswith(("http://", "https://")):
+            return text.strip()
+        m = URL_RE.search(text)
+        if m:
+            return m.group(0).strip()
+    return ""
+
+def _first_code(*values: Any) -> str:
+    for value in values:
+        text = str(value or "")
+        if not text:
+            continue
+        m = CODE_RE.search(text)
+        if m:
+            return m.group(1).strip()
+    return ""
 
 def _normalize_items(data: Any) -> list[dict]:
     raw_items = []
@@ -44,14 +102,15 @@ def _normalize_items(data: Any) -> list[dict]:
     items = []
     for item in raw_items:
         title = item.get("title") or item.get("name") or item.get("subject") or item.get("note") or "未命名资源"
-        url = item.get("url") or item.get("link") or item.get("share_url") or item.get("shareUrl") or ""
-        disk = item.get("disk_type") or item.get("type") or item.get("pan") or item.get("cloud") or "unknown"
-        password = item.get("password") or item.get("pwd") or item.get("code") or ""
+        note = item.get("note") or item.get("content") or item.get("description") or ""
+        url = _first_url(item.get("url"), item.get("link"), item.get("share_url"), item.get("shareUrl"), note, title)
+        disk = _normalize_disk(item.get("disk_type") or item.get("type") or item.get("pan") or item.get("cloud"), f"{title} {note} {url}")
+        password = item.get("password") or item.get("pwd") or item.get("code") or item.get("share_code") or _first_code(note, title)
         if not url:
             continue
         cls = classify_resource(
             title=title,
-            note=item.get("note") or "",
+            note=note,
             source=item.get("source") or "",
         )
         items.append({

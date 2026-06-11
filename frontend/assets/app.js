@@ -20,6 +20,7 @@ const qualityFilters=['','4K','REMUX','原盘','HDR','DV','蓝光'];
 let allResults=[];
 let settingsCache={};
 let driveQuotaCache={};
+let driveStatusCache={};
 
 const defaultWeightOrder=['disc','remux','dv','hdr','atmos','dts','k4','p1080','size','configured'];
 
@@ -137,7 +138,7 @@ function setLoggedIn(v){
   if(v){
     hide('loginPage'); show('mainPage'); show('logout');
     initFilters();
-    loadSettings(); loadTasks(); loadSubs(); setTimeout(()=>{ if(typeof loadDriveQuota==='function') loadDriveQuota(); },1000);
+    loadSettings(); loadTasks(); loadSubs(); loadWorkflowOverview(); setTimeout(()=>{ if(typeof loadDriveQuota==='function') loadDriveQuota(); },1000);
   }else{
     show('loginPage'); hide('mainPage'); hide('logout');
   }
@@ -180,6 +181,24 @@ function configuredDrives(){
 
 function isDriveConfigured(disk){
   return configuredDrives().includes((disk||'').toLowerCase());
+}
+
+function driveState(disk){
+  const d=(disk||'').toLowerCase();
+  return driveStatusCache[d] || {};
+}
+
+function canSaveItem(item){
+  if(Object.prototype.hasOwnProperty.call(item,'can_save')) return !!item.can_save;
+  const st=driveState(item.disk_type);
+  if(Object.prototype.hasOwnProperty.call(st,'can_save')) return !!st.can_save;
+  return isDriveConfigured(item.disk_type);
+}
+
+function driveSaveMessage(item){
+  if(item.save_message) return item.save_message;
+  const st=driveState(item.disk_type);
+  return st.message || (isDriveConfigured(item.disk_type) ? '已配置' : '未配置');
 }
 
 function initFilters(){
@@ -509,8 +528,8 @@ function applyFilters(){
   if(sort==='title') items.sort((a,b)=>(a.title||'').localeCompare(b.title||''));
   if(sort==='password') items.sort((a,b)=>(b.password?1:0)-(a.password?1:0));
 
-  const configured=items.filter(x=>isDriveConfigured(x.disk_type));
-  const unconfigured=items.filter(x=>!isDriveConfigured(x.disk_type));
+  const configured=items.filter(x=>canSaveItem(x));
+  const unconfigured=items.filter(x=>!canSaveItem(x));
 
   $('configuredCount').textContent=configured.length;
   $('unconfiguredCount').textContent=unconfigured.length;
@@ -584,8 +603,9 @@ function renderResults(items,targetId,allowSave){
         <div class="resource-grid">
           ${group.sources.map(item=>{
             const link=item.url||item.share_url||'';
-            const canSave=allowSave && isDriveConfigured(item.disk_type);
+            const canSave=allowSave && canSaveItem(item);
             const q=parseQuality(item);
+            const statusText=driveSaveMessage(item);
             return `
               <article class="resource-card">
                 ${q.size?`<div class="size-badge">${escapeHtml(q.size)}</div>`:''}
@@ -607,6 +627,7 @@ function renderResults(items,targetId,allowSave){
                 <div class="resource-actions">
                   ${canSave?`<button class="primary mini" onclick='saveCloud(${JSON.stringify(item).replaceAll("'","&#39;")})'>立即转存</button>`:''}
                   <button class="secondary mini" onclick="window.open('${escapeHtml(link)}','_blank')">打开链接</button>
+                  ${!canSave?`<span class="save-status">${escapeHtml(statusText)}</span>`:''}
                   ${(item.password||item.share_code)?`<span class="share-code">提取码 ${escapeHtml(item.password||item.share_code)}</span>`:''}
                 </div>
               </article>            `;
@@ -630,6 +651,7 @@ window.saveCloud=async(item)=>{
     }});
     alert('转存结果：'+task.status+'\n'+task.message);
     loadTasks();
+    loadWorkflowOverview();
   }catch(e){alert('转存失败：'+e.message)}
 };
 
@@ -638,8 +660,12 @@ $('searchBtn').onclick=async()=>{
   show('filterCard');
   try{
     const data=await api('/api/search?keyword='+encodeURIComponent($('keyword').value));
+    if(data.drive_status){
+      driveStatusCache=data.drive_status;
+    }
     allResults=data.items||[];
     applyFilters();
+    loadWorkflowOverview();
   }catch(e){
     $('searchMsg').textContent='搜索失败：'+e.message;
   }
@@ -675,6 +701,33 @@ async function loadDriveQuota(){
   }
 }
 
+async function loadDriveStatus(){
+  try{
+    const data=await api('/api/cloud-drives/status');
+    driveStatusCache={};
+    (data.items||[]).forEach(item=>{
+      driveStatusCache[item.disk_type]=item;
+    });
+    renderDriveSettings();
+    return data;
+  }catch(e){
+    console.error('drive status load failed',e);
+    return null;
+  }
+}
+
+async function loadWorkflowOverview(){
+  try{
+    const data=await api('/api/workflow/overview');
+    if($('dashSearchCount')) $('dashSearchCount').textContent=String(data.search_count ?? 0);
+    if($('dashSaveSuccessCount')) $('dashSaveSuccessCount').textContent=String(data.save_success_count ?? 0);
+    if($('dashSubCount')) $('dashSubCount').textContent=String(data.subscription_count ?? 0);
+    if($('dashSavableDriveCount')) $('dashSavableDriveCount').textContent=`${data.savable_drive_count ?? 0}/${data.configured_drive_count ?? 0}`;
+  }catch(e){
+    console.error('workflow overview load failed',e);
+  }
+}
+
 function renderDriveSettings(){
   const wrap=$('driveCards') || $('driveSettings');
   if(!wrap) return;
@@ -685,7 +738,10 @@ function renderDriveSettings(){
 
   wrap.innerHTML=existing.map((d,i)=>{
     const usage=driveUsageMock(d);
+    const state=driveState(d);
     const logo=driveLogo?.[d] || '';
+    const sub=state.message || (state.can_save ? '可一键转存' : '已配置');
+    const readyClass=state.can_save ? 'ready' : 'pending';
 
     return `
       <div class="drive-card-v2">
@@ -704,7 +760,7 @@ function renderDriveSettings(){
           </div>
           <div>
             <div class="drive-card-name">${escapeHtml(driveNames[d]||d)}</div>
-            <div class="drive-card-sub">已配置转存</div>
+            <div class="drive-card-sub ${readyClass}">${escapeHtml(sub)}</div>
           </div>
         </div>
 
@@ -787,11 +843,18 @@ window.saveDriveModal=function(){
   closeDriveModal();
   renderDriveSettings();
   saveAllSettings();
-  setTimeout(()=>{ if(typeof loadDriveQuota==='function') loadDriveQuota(); },800);
+  setTimeout(()=>{ loadDriveStatus(); if(typeof loadDriveQuota==='function') loadDriveQuota(); },800);
 };
 
-window.testDrive=function(d){
-  alert((driveNames[d]||d)+' 测试接口后续接入');
+window.testDrive=async function(d){
+  try{
+    const r=await api('/api/cloud-drives/test/'+encodeURIComponent(d),{method:'POST'});
+    alert((driveNames[d]||d)+'：'+(r.message||JSON.stringify(r)));
+    await loadDriveStatus();
+    await loadDriveQuota();
+  }catch(e){
+    alert((driveNames[d]||d)+' 测试失败：'+e.message);
+  }
 };
 
 window.removeDrive=(d)=>{
@@ -820,6 +883,7 @@ async function loadSettings(){
 
     renderWeightOrder();
     renderDriveSettings();
+    loadDriveStatus();
     setTimeout(()=>{ if(typeof loadDriveQuota==='function') loadDriveQuota(); },500);
   }catch(e){}
 }
@@ -1203,6 +1267,8 @@ function saveAllSettings(){
       settingsCache=Object.assign({},settingsCache,body);
       if($('settingsMsg')) $('settingsMsg').textContent='已保存';
       renderDriveSettings();
+      loadDriveStatus();
+      loadWorkflowOverview();
       if(typeof loadDriveQuota==='function') loadDriveQuota();
     })
     .catch(e=>{
